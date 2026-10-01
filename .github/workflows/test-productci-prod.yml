@@ -1,0 +1,69 @@
+name: Product API Production CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        image: mongo:latest
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start Product API
+        env:
+          PORT: 3000
+          MONGODB_URI: mongodb://localhost:27017/productdb
+        run: |
+          npm start > server.log 2>&1 &
+          sleep 10
+
+      - name: Check API
+        run: |
+          curl --fail http://localhost:3000/api/products
+
+      - name: Test CREATE product
+        run: |
+          curl --fail -X POST http://localhost:3000/api/products \
+          -H "Content-Type: application/json" \
+          -d '{"pid":101,"pname":"CI Test Product","price":1000000,"quantity":10}'
+
+      - name: Test READ product
+        run: |
+          curl --fail http://localhost:3000/api/products
+
+      - name: Test UPDATE product
+        run: |
+          curl --fail -X PUT http://localhost:3000/api/products/101 \
+          -H "Content-Type: application/json" \
+          -d '{"pname":"CI Updated Product","price":1200000,"quantity":20}'
+
+      - name: Test DELETE product
+        run: |
+          curl --fail -X DELETE http://localhost:3000/api/products/101
