@@ -98,3 +98,34 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/product-api:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/product-api:${{ github.sha }}
+
+  deploy-local:
+    needs: build-test-push
+    runs-on: [self-hosted, Windows, X64]
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Pull latest image from Docker Hub
+        shell: powershell
+        run: |
+          docker pull nguyenthanhtai306/product-api:latest
+
+      - name: Deploy to local Docker Engine
+        shell: powershell
+        run: |
+          docker compose -f docker-compose-prod.yaml up -d
+
+      - name: Check containers
+        shell: powershell
+        run: |
+          docker compose -f docker-compose-prod.yaml ps
+
+      - name: Check API
+        shell: powershell
+        run: |
+          $response = Invoke-WebRequest -Uri "http://localhost:3000/api/products" -UseBasicParsing
+          if ($response.StatusCode -ne 200) {
+            exit 1
+          }
