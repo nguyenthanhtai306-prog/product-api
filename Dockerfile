@@ -9,5 +9,5 @@ RUN npm install
 COPY . .
 
 EXPOSE 3000
-
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=5 CMD node -e "require('http').get('http://localhost:3000/api/products', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 CMD ["npm", "start"]

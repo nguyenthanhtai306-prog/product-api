@@ -1,0 +1,100 @@
+name: Product API CD - Docker Hub
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-test-push:
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        image: mongo:latest
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start Product API
+        env:
+          PORT: 3000
+          MONGODB_URI: mongodb://localhost:27017/productdb
+        run: |
+          npm start > server.log 2>&1 &
+          sleep 10
+
+      - name: Check API health
+        run: |
+          curl --fail http://localhost:3000/api/products
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/product-api:test
+
+      - name: Create Docker network
+        run: |
+          docker network create ci-network
+
+      - name: Start MongoDB container
+        run: |
+          docker run -d \
+            --name ci-mongodb \
+            --network ci-network \
+            mongo:latest
+
+      - name: Start Product API container
+        run: |
+          docker run -d \
+            --name product-api-test \
+            --network ci-network \
+            -p 3001:3000 \
+            -e PORT=3000 \
+            -e MONGODB_URI=mongodb://ci-mongodb:27017/productdb \
+            ${{ secrets.DOCKERHUB_USERNAME }}/product-api:test
+
+      - name: Check Docker container health
+        run: |
+          echo "Waiting for Product API container..."
+          sleep 20
+
+          docker inspect \
+            --format='{{.State.Health.Status}}' \
+            product-api-test
+
+          curl --fail http://localhost:3001/api/products
+
+      - name: Push image to Docker Hub
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/product-api:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/product-api:${{ github.sha }}
